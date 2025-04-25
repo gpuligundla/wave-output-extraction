@@ -4,10 +4,7 @@ from pathlib import Path
 import logging
 import sys
 from datetime import datetime
-import warnings
 import traceback
-
-warnings.simplefilter("error", category=RuntimeWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +23,11 @@ def setup_logger():
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    
+
     # Add console handler to show logs in the terminal as well
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.WARNING)
-    console_formatter = logging.Formatter('%(levelname)s - %(message)s')
+    console_formatter = logging.Formatter("%(levelname)s - %(message)s")
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
 
@@ -176,11 +173,25 @@ def extract_stage_level_flow_table(df):
     cleaned_table = clean_table(table)
 
     data = {}
-    col_keys = ["ElementType", "PV", "ElsPer", "Feed_Flow", "Feed_Recirc", "Feed_Press", "Feed_Boost_Press", "Conc_Flow", "Conc_Press", "Conc_Press_Drop", "Perm_Flow",
-                "Perm_Avg_Flux", "Perm_Press", "Perm_TDS"]
+    col_keys = [
+        "ElementType",
+        "PV",
+        "ElsPer",
+        "Feed_Flow",
+        "Feed_Recirc",
+        "Feed_Press",
+        "Feed_Boost_Press",
+        "Conc_Flow",
+        "Conc_Press",
+        "Conc_Press_Drop",
+        "Perm_Flow",
+        "Perm_Avg_Flux",
+        "Perm_Press",
+        "Perm_TDS",
+    ]
     for idx, row in enumerate(cleaned_table.itertuples(index=False), start=1):
         for i, col in enumerate(col_keys, start=1):
-            data[f'Stage_{idx}_{col}'] = row[i]
+            data[f"Stage_{idx}_{col}"] = row[i]
 
     dataframe = pd.DataFrame([data])
     return dataframe, None
@@ -343,7 +354,7 @@ def extract_solubility_warnings(df):
             " ".join([f"{col}: {row.iloc[idx]}" for idx, col in enumerate(columns)])
         )
 
-     # merging all warnings into 1 string
+    # merging all warnings into 1 string
     warnings = "\n".join(warnings)
     result_df = pd.DataFrame([{"RO Solubility Warnings": warnings}])
     return result_df, None
@@ -576,7 +587,9 @@ def process_file(filepath):
                     logger.info(f"Extracting {table_name} from {filepath}")
                     tables[table_name], errors[table_name] = extract_function(df)
                     if errors[table_name]:
-                        logger.warning(f"Error in {table_name} extraction: {errors[table_name]}")
+                        logger.warning(
+                            f"Error in {table_name} extraction: {errors[table_name]}"
+                        )
                 except Exception as e:
                     stack_trace = traceback.format_exc()
                     error_msg = f"Failed to extract {table_name}: {str(e)}"
@@ -617,14 +630,16 @@ def process_directory(directory_path, output_file=None):
     logger.info(f"Processing directory: {directory_path}")
 
     if output_file is None:
-        output_file = os.path.join(directory_path, "WAVE_RO_Extraction.xlsx")
+        output_file = os.path.join(os.curdir, "WAVE_RO_Extraction.xlsx")
 
     # Find only XLS files
     try:
         all_files = list(Path(directory_path).glob("*.xls"))
     except Exception as e:
         stack_trace = traceback.format_exc()
-        logger.error(f"Error finding XLS files in {directory_path}: {str(e)}\n{stack_trace}")
+        logger.error(
+            f"Error finding XLS files in {directory_path}: {str(e)}\n{stack_trace}"
+        )
         print(f"Error finding XLS files: {str(e)}")
         return
 
@@ -685,7 +700,8 @@ def process_directory(directory_path, output_file=None):
                                     # Add SourceFile as first column
                                     df_to_append.insert(0, "SourceFile", file_path.name)
                                     all_tables[key] = pd.concat(
-                                        [all_tables[key], df_to_append], ignore_index=True
+                                        [all_tables[key], df_to_append],
+                                        ignore_index=True,
                                     )
                                 elif isinstance(tables[key], str):
                                     new_row = pd.DataFrame(
@@ -697,34 +713,40 @@ def process_directory(directory_path, output_file=None):
                                     all_tables[key] = pd.concat(
                                         [all_tables[key], new_row], ignore_index=True
                                     )
-                    
+
                     file_count += 1
                 except Exception as e:
                     stack_trace = traceback.format_exc()
-                    logger.error(f"Error processing file {file_path.name}: {str(e)}\n{stack_trace}")
+                    logger.error(
+                        f"Error processing file {file_path.name}: {str(e)}\n{stack_trace}"
+                    )
                     failed_files.append(file_path.name)
                     continue
 
             # Add a summary sheet with processing statistics
             summary_data = {
                 "Statistic": [
-                    "Total Files Processed", 
-                    "Successfully Processed", 
-                    "Failed Files", 
+                    "Total Files Processed",
+                    "Successfully Processed",
+                    "Failed Files",
                     "Failure Rate (%)",
-                    "Failed Files List"
+                    "Failed Files List",
                 ],
                 "Value": [
                     len(all_files),
                     file_count,
                     len(failed_files),
-                    round(len(failed_files) / len(all_files) * 100, 2) if all_files else 0,
-                    ", ".join(failed_files) if failed_files else "None"
-                ]
+                    (
+                        round(len(failed_files) / len(all_files) * 100, 2)
+                        if all_files
+                        else 0
+                    ),
+                    ", ".join(failed_files) if failed_files else "None",
+                ],
             }
             summary_df = pd.DataFrame(summary_data)
             summary_df.to_excel(writer, sheet_name="Processing_Summary", index=False)
-                
+
             # Write all tables to separate sheets with formatting
             logger.info(
                 f"Writing {len(all_tables)} tables to output file: {output_file}"
@@ -755,7 +777,9 @@ def process_directory(directory_path, output_file=None):
         logger.info(
             f"Successfully processed {file_count} files, {len(failed_files)} failures. Output saved to {output_file}"
         )
-        print(f"Processed {file_count} files, {len(failed_files)} failures. Output saved to {output_file}")
+        print(
+            f"Processed {file_count} files, {len(failed_files)} failures. Output saved to {output_file}"
+        )
         if failed_files:
             print(f"Failed files: {', '.join(failed_files)}")
     except Exception as e:
