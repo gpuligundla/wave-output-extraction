@@ -87,12 +87,12 @@ def extract_summary_table(df):
     table = df.iloc[start_row:end_row].copy()
     table_cleaned = clean_table(table)
     data = {}
-    row_keys = ['Raw_Feed', 'Net_Feed', 'Total_Conc', 'Net_Product']
-    col_keys = ['#number', 'Description', 'Flow', 'TDS', 'Pressure']
+    row_keys = ["Raw_Feed", "Net_Feed", "Total_Conc", "Net_Product"]
+    col_keys = ["#number", "Description", "Flow", "TDS", "Pressure"]
 
     for r_key, row in zip(row_keys, table_cleaned.itertuples(index=False)):
         for idx, c_key in enumerate(col_keys):
-            data[f'{r_key}_{c_key}'] = row[idx]
+            data[f"{r_key}_{c_key}"] = row[idx]
 
     result_df = pd.DataFrame([data])
     return result_df, None
@@ -142,7 +142,7 @@ def extract_pass_details(df):
     cleaned_table = cleaned_table.drop(cleaned_table.columns[1], axis=1)
 
     transpose_table = cleaned_table.T
-    
+
     transpose_table.columns = transpose_table.iloc[0]
     transpose_table = transpose_table.iloc[1:]
 
@@ -297,7 +297,7 @@ def extract_design_warnings(df):
             " ".join([f"{col}: {row.iloc[idx]}" for idx, col in enumerate(columns)])
         )
 
-    # merging all warnings into 1 string    
+    # merging all warnings into 1 string
     warnings = "\n".join(warnings)
     result_df = pd.DataFrame([{"RO Design Warnings": warnings}])
     return result_df, None
@@ -406,7 +406,6 @@ def extract_chemical_adjustments(df):
         key = key.strip().replace(" ", "_")
         for index, col in enumerate(columns, start=1):
             data[f"{key}_{col}"] = row[index]
-
 
     result_df = pd.DataFrame([data])
 
@@ -647,7 +646,7 @@ def process_directory(directory_path, output_file=None):
     file_count = 0
 
     try:
-        with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
+        with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
             for file_path in all_files:
                 logger.info(
                     f"Processing file {file_count+1}/{len(all_files)}: {file_path.name}"
@@ -671,10 +670,12 @@ def process_directory(directory_path, output_file=None):
                             df.insert(0, "SourceFile", file_path.name)
                             all_tables[key] = df
                         else:
-                            all_tables[key] = pd.DataFrame({
-                                "SourceFile": [file_path.name],
-                                "Content": [tables[key]]
-                            })
+                            all_tables[key] = pd.DataFrame(
+                                {
+                                    "SourceFile": [file_path.name],
+                                    "Content": [tables[key]],
+                                }
+                            )
                 else:
                     # Append data from this file to all_tables
                     for key in tables:
@@ -690,10 +691,12 @@ def process_directory(directory_path, output_file=None):
                                     [all_tables[key], df_to_append], ignore_index=True
                                 )
                             elif isinstance(tables[key], str):
-                                new_row = pd.DataFrame({
-                                    "SourceFile": [file_path.name],
-                                    "Content": [tables[key]]
-                                })
+                                new_row = pd.DataFrame(
+                                    {
+                                        "SourceFile": [file_path.name],
+                                        "Content": [tables[key]],
+                                    }
+                                )
                                 all_tables[key] = pd.concat(
                                     [all_tables[key], new_row], ignore_index=True
                                 )
@@ -709,20 +712,19 @@ def process_directory(directory_path, output_file=None):
                     sheet_name = key[:31]  # Excel sheet names limited to 31 chars
                     table.to_excel(writer, sheet_name=sheet_name, index=False)
                     logger.info(f"Wrote table '{key}' to sheet '{sheet_name}'")
-                    
+
                     # Get the xlsxwriter workbook and worksheet objects
                     workbook = writer.book
                     worksheet = writer.sheets[sheet_name]
-                    
+
                     # Add a cell format with text wrapping
-                    wrap_format = workbook.add_format({'text_wrap': True})
-                    
+                    wrap_format = workbook.add_format({"text_wrap": True})
+
                     # Apply the format to all columns
                     for col_num, column in enumerate(table.columns):
                         # Set the column width based on content
                         max_len = max(
-                            table[column].astype(str).apply(len).max(),
-                            len(str(column))
+                            table[column].astype(str).apply(len).max(), len(str(column))
                         )
                         # Limiting the column width to be between 10 and 50
                         col_width = min(max(max_len + 2, 10), 50)
