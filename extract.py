@@ -1,11 +1,11 @@
 import pandas as pd
 import os
 from pathlib import Path
-import re
 import logging
 import sys
 from datetime import datetime
 import warnings
+import traceback
 
 warnings.simplefilter("error", category=RuntimeWarning)
 
@@ -26,6 +26,13 @@ def setup_logger():
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    
+    # Add console handler to show logs in the terminal as well
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.WARNING)
+    console_formatter = logging.Formatter('%(levelname)s - %(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
 
 
 def convert_xls_to_csv(xls_file):
@@ -42,7 +49,8 @@ def convert_xls_to_csv(xls_file):
         logger.info(f"Successfully converted to {csv_output}")
         return csv_output
     except Exception as e:
-        logger.error(f"Error converting {xls_file} to CSV: {str(e)}")
+        stack_trace = traceback.format_exc()
+        logger.error(f"Error converting {xls_file} to CSV: {str(e)}\n{stack_trace}")
         raise
 
 
@@ -348,8 +356,6 @@ def extract_solubility_warnings(df):
     # Extract the table with all columns to capture values
     table = df.iloc[start_row:end_row].copy()
     cleaned_table = clean_table(table)
-    cleaned_table = cleaned_table.drop(cleaned_table.columns[1], axis=1)
-
     warnings = []
     columns = ["Warnings", "PassNo"]
 
@@ -357,7 +363,10 @@ def extract_solubility_warnings(df):
         warnings.append(
             " ".join([f"{col}: {row.iloc[idx]}" for idx, col in enumerate(columns)])
         )
-    result_df = pd.DataFrame(warnings, columns=["RO Solubility Warnings"])
+
+     # merging all warnings into 1 string
+    warnings = "\n".join(warnings)
+    result_df = pd.DataFrame([{"RO Solubility Warnings": warnings}])
     return result_df, None
 
 
@@ -563,40 +572,38 @@ def process_file(filepath):
             tables = {}
             errors = {}
 
-            # Extract all tables
+            # List of extraction functions with their names for better logging
+            extraction_functions = [
+                ("summary", extract_summary_table),
+                ("system_overview", extract_system_overview),
+                ("pass_details", extract_pass_details),
+                ("stage_flow", extract_stage_level_flow_table),
+                ("solute_concentrations", extract_solute_concentrations),
+                ("design_warnings", extract_design_warnings),
+                ("element_flow", extract_element_level_flow_table),
+                ("solubility_warnings", extract_solubility_warnings),
+                ("chemical_adjustments", extract_chemical_adjustments),
+                ("utility_costs", extract_utility_costs),
+                ("electricity_details", extract_electricity_details),
+                ("pump_details", extract_pump_details),
+                ("chemical_details", extract_chemical_details),
+                ("final_costs", extract_final_costs),
+            ]
+
+            # Extract all tables with better error handling
             logger.info(f"Extracting tables from {filepath}")
-            tables["summary"], errors["summary"] = extract_summary_table(df)
-            tables["system_overview"], errors["system_overview"] = (
-                extract_system_overview(df)
-            )
-            tables["pass_details"], errors["pass_details"] = extract_pass_details(df)
-            tables["stage_flow"], errors["stage_flow"] = extract_stage_level_flow_table(
-                df
-            )
-            tables["solute_concentrations"], errors["solute_concentrations"] = (
-                extract_solute_concentrations(df)
-            )
-            tables["design_warnings"], errors["design_warnings"] = (
-                extract_design_warnings(df)
-            )
-            tables["element_flow"], errors["element_flow"] = (
-                extract_element_level_flow_table(df)
-            )
-            tables["solubility_warnings"], errors["solubility_warnings"] = (
-                extract_solubility_warnings(df)
-            )
-            tables["chemical_adjustments"], errors["chemical_adjustments"] = (
-                extract_chemical_adjustments(df)
-            )
-            tables["utility_costs"], errors["utility_costs"] = extract_utility_costs(df)
-            tables["electricity_details"], errors["electricity_details"] = (
-                extract_electricity_details(df)
-            )
-            tables["pump_details"], errors["pump_details"] = extract_pump_details(df)
-            tables["chemical_details"], errors["chemical_details"] = (
-                extract_chemical_details(df)
-            )
-            tables["final_costs"], errors["final_costs"] = extract_final_costs(df)
+            for table_name, extract_function in extraction_functions:
+                try:
+                    logger.info(f"Extracting {table_name} from {filepath}")
+                    tables[table_name], errors[table_name] = extract_function(df)
+                    if errors[table_name]:
+                        logger.warning(f"Error in {table_name} extraction: {errors[table_name]}")
+                except Exception as e:
+                    stack_trace = traceback.format_exc()
+                    error_msg = f"Failed to extract {table_name}: {str(e)}"
+                    logger.error(f"{error_msg}\n{stack_trace}")
+                    tables[table_name] = pd.DataFrame()
+                    errors[table_name] = error_msg
 
             # Record errors
             error_msgs = [f"{k}: {v}" for k, v in errors.items() if v is not None]
@@ -611,8 +618,9 @@ def process_file(filepath):
                 os.remove(csv_filepath)
                 logger.info(f"Removed temporary CSV file: {csv_filepath}")
             except Exception as e:
+                stack_trace = traceback.format_exc()
                 logger.warning(
-                    f"Could not remove temporary CSV file {csv_filepath}: {str(e)}"
+                    f"Could not remove temporary CSV file {csv_filepath}: {str(e)}\n{stack_trace}"
                 )
 
             return tables
@@ -620,7 +628,8 @@ def process_file(filepath):
             logger.warning(f"Skipping non-Excel file: {filepath}")
             return None
     except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
+        stack_trace = traceback.format_exc()
+        logger.error(f"Error processing {filepath}: {str(e)}\n{stack_trace}")
         return None
 
 
@@ -632,7 +641,13 @@ def process_directory(directory_path, output_file=None):
         output_file = os.path.join(directory_path, "WAVE_RO_Extraction.xlsx")
 
     # Find only XLS files
-    all_files = list(Path(directory_path).glob("*.xls"))
+    try:
+        all_files = list(Path(directory_path).glob("*.xls"))
+    except Exception as e:
+        stack_trace = traceback.format_exc()
+        logger.error(f"Error finding XLS files in {directory_path}: {str(e)}\n{stack_trace}")
+        print(f"Error finding XLS files: {str(e)}")
+        return
 
     if not all_files:
         logger.warning(f"No Excel files found in {directory_path}")
@@ -644,6 +659,7 @@ def process_directory(directory_path, output_file=None):
     # Process each file
     all_tables = {}
     file_count = 0
+    failed_files = []
 
     try:
         with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
@@ -653,56 +669,83 @@ def process_directory(directory_path, output_file=None):
                 )
                 print(f"Processing {file_path.name}...")
 
-                tables = process_file(str(file_path))
+                try:
+                    tables = process_file(str(file_path))
 
-                if tables is None:
-                    logger.warning(
-                        f"Skipping {file_path.name} due to processing errors"
-                    )
-                    continue
+                    if tables is None:
+                        logger.warning(
+                            f"Skipping {file_path.name} due to processing errors"
+                        )
+                        failed_files.append(file_path.name)
+                        continue
 
-                # For the first file, initialize all_tables
-                if file_count == 0:
-                    for key in tables:
-                        if isinstance(tables[key], pd.DataFrame):
-                            df = tables[key].copy()
-                            # Add SourceFile as first column
-                            df.insert(0, "SourceFile", file_path.name)
-                            all_tables[key] = df
-                        else:
-                            all_tables[key] = pd.DataFrame(
-                                {
-                                    "SourceFile": [file_path.name],
-                                    "Content": [tables[key]],
-                                }
-                            )
-                else:
-                    # Append data from this file to all_tables
-                    for key in tables:
-                        if key in all_tables:
-                            if (
-                                isinstance(tables[key], pd.DataFrame)
-                                and not tables[key].empty
-                            ):
-                                df_to_append = tables[key].copy()
+                    # For the first file, initialize all_tables
+                    if file_count == 0:
+                        for key in tables:
+                            if isinstance(tables[key], pd.DataFrame):
+                                df = tables[key].copy()
                                 # Add SourceFile as first column
-                                df_to_append.insert(0, "SourceFile", file_path.name)
-                                all_tables[key] = pd.concat(
-                                    [all_tables[key], df_to_append], ignore_index=True
-                                )
-                            elif isinstance(tables[key], str):
-                                new_row = pd.DataFrame(
+                                df.insert(0, "SourceFile", file_path.name)
+                                all_tables[key] = df
+                            else:
+                                all_tables[key] = pd.DataFrame(
                                     {
                                         "SourceFile": [file_path.name],
                                         "Content": [tables[key]],
                                     }
                                 )
-                                all_tables[key] = pd.concat(
-                                    [all_tables[key], new_row], ignore_index=True
-                                )
+                    else:
+                        # Append data from this file to all_tables
+                        for key in tables:
+                            if key in all_tables:
+                                if (
+                                    isinstance(tables[key], pd.DataFrame)
+                                    and not tables[key].empty
+                                ):
+                                    df_to_append = tables[key].copy()
+                                    # Add SourceFile as first column
+                                    df_to_append.insert(0, "SourceFile", file_path.name)
+                                    all_tables[key] = pd.concat(
+                                        [all_tables[key], df_to_append], ignore_index=True
+                                    )
+                                elif isinstance(tables[key], str):
+                                    new_row = pd.DataFrame(
+                                        {
+                                            "SourceFile": [file_path.name],
+                                            "Content": [tables[key]],
+                                        }
+                                    )
+                                    all_tables[key] = pd.concat(
+                                        [all_tables[key], new_row], ignore_index=True
+                                    )
+                    
+                    file_count += 1
+                except Exception as e:
+                    stack_trace = traceback.format_exc()
+                    logger.error(f"Error processing file {file_path.name}: {str(e)}\n{stack_trace}")
+                    failed_files.append(file_path.name)
+                    continue
 
-                file_count += 1
-
+            # Add a summary sheet with processing statistics
+            summary_data = {
+                "Statistic": [
+                    "Total Files Processed", 
+                    "Successfully Processed", 
+                    "Failed Files", 
+                    "Failure Rate (%)",
+                    "Failed Files List"
+                ],
+                "Value": [
+                    len(all_files),
+                    file_count,
+                    len(failed_files),
+                    round(len(failed_files) / len(all_files) * 100, 2) if all_files else 0,
+                    ", ".join(failed_files) if failed_files else "None"
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name="Processing_Summary", index=False)
+                
             # Write all tables to separate sheets with formatting
             logger.info(
                 f"Writing {len(all_tables)} tables to output file: {output_file}"
@@ -731,11 +774,14 @@ def process_directory(directory_path, output_file=None):
                         worksheet.set_column(col_num, col_num, col_width, wrap_format)
 
         logger.info(
-            f"Successfully processed {file_count} files. Output saved to {output_file}"
+            f"Successfully processed {file_count} files, {len(failed_files)} failures. Output saved to {output_file}"
         )
-        print(f"Processed {file_count} files. Output saved to {output_file}")
+        print(f"Processed {file_count} files, {len(failed_files)} failures. Output saved to {output_file}")
+        if failed_files:
+            print(f"Failed files: {', '.join(failed_files)}")
     except Exception as e:
-        logger.error(f"Error during directory processing: {str(e)}")
+        stack_trace = traceback.format_exc()
+        logger.error(f"Error during directory processing: {str(e)}\n{stack_trace}")
         print(f"Error during processing: {str(e)}")
 
 
