@@ -175,35 +175,14 @@ def extract_stage_level_flow_table(df):
     table = df.iloc[start_row:end_row].copy()
     cleaned_table = clean_table(table)
 
-    data = []
-    for index, row in cleaned_table.iterrows():
-        cur_row = {}
+    data = {}
+    col_keys = ["ElementType", "PV", "ElsPer", "Feed_Flow", "Feed_Recirc", "Feed_Press", "Feed_Boost_Press", "Conc_Flow", "Conc_Press", "Conc_Press_Drop", "Perm_Flow",
+                "Perm_Avg_Flux", "Perm_Press", "Perm_TDS"]
+    for idx, row in enumerate(cleaned_table.itertuples(index=False), start=1):
+        for i, col in enumerate(col_keys, start=1):
+            data[f'Stage_{idx}_{col}'] = row[i]
 
-        cur_row["Stage"] = row.iloc[0]
-        cur_row["ElementType"] = row.iloc[1]
-        cur_row["PV"] = row.iloc[2]
-        cur_row["ElsPer"] = row.iloc[3]
-
-        # feed
-        cur_row["Feed_Flow"] = row.iloc[4]
-        cur_row["Feed_Recirc"] = row.iloc[5]
-        cur_row["Feed_Press"] = row.iloc[6]
-        cur_row["Feed_Boost_Press"] = row.iloc[7]
-
-        # concentrate
-        cur_row["Conc_Flow"] = row.iloc[8]
-        cur_row["Conc_Press"] = row.iloc[9]
-        cur_row["Conc_Press_Drop"] = row.iloc[10]
-
-        # premeate
-        cur_row["Perm_Flow"] = row.iloc[11]
-        cur_row["Perm_Avg_Flux"] = row.iloc[12]
-        cur_row["Perm_Press"] = row.iloc[13]
-        cur_row["Perm_TDS"] = row.iloc[14]
-
-        data.append(cur_row)
-
-    dataframe = pd.DataFrame(data)
+    dataframe = pd.DataFrame([data])
     return dataframe, None
 
 
