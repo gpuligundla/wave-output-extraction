@@ -655,6 +655,23 @@ def process_directory(directory_path, output_file=None):
     file_count = 0
     failed_files = []
 
+    # Look for metadata file in the directory
+    metadata_file = os.path.join(directory_path, "report_metadata.csv")
+    metadata_df = None
+    if os.path.exists(metadata_file):
+        try:
+            logger.info(f"Loading metadata from {metadata_file}")
+            metadata_df = pd.read_csv(metadata_file)
+            logger.info(f"Successfully loaded metadata with {len(metadata_df)} rows")
+            print(f"Found and loaded metadata from {metadata_file}")
+        except Exception as e:
+            stack_trace = traceback.format_exc()
+            logger.error(f"Error loading metadata file: {str(e)}\n{stack_trace}")
+            print(f"Error loading metadata file: {str(e)}")
+            metadata_df = None
+    else:
+        logger.info("No report_metadata.csv file found in the directory")
+
     try:
         with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
             for file_path in all_files:
@@ -723,6 +740,24 @@ def process_directory(directory_path, output_file=None):
                     failed_files.append(file_path.name)
                     continue
 
+            # Add metadata sheet if available
+            if metadata_df is not None and not metadata_df.empty:
+                logger.info("Adding metadata sheet to output file")
+                metadata_df.to_excel(writer, sheet_name="Metadata", index=False)
+                
+                # Format the metadata sheet
+                workbook = writer.book
+                worksheet = writer.sheets["Metadata"]
+                wrap_format = workbook.add_format({"text_wrap": True})
+                
+                # Set column widths for better readability
+                for col_num, column in enumerate(metadata_df.columns):
+                    max_len = max(
+                        metadata_df[column].astype(str).apply(len).max(), len(str(column))
+                    )
+                    col_width = min(max(max_len + 2, 10), 50)
+                    worksheet.set_column(col_num, col_num, col_width, wrap_format)
+
             # Add a summary sheet with processing statistics
             summary_data = {
                 "Statistic": [
@@ -731,6 +766,7 @@ def process_directory(directory_path, output_file=None):
                     "Failed Files",
                     "Failure Rate (%)",
                     "Failed Files List",
+                    "Metadata File Included",
                 ],
                 "Value": [
                     len(all_files),
@@ -742,6 +778,7 @@ def process_directory(directory_path, output_file=None):
                         else 0
                     ),
                     ", ".join(failed_files) if failed_files else "None",
+                    "Yes" if metadata_df is not None else "No",
                 ],
             }
             summary_df = pd.DataFrame(summary_data)
@@ -782,6 +819,8 @@ def process_directory(directory_path, output_file=None):
         )
         if failed_files:
             print(f"Failed files: {', '.join(failed_files)}")
+        if metadata_df is not None:
+            print(f"Metadata from {metadata_file} included in output file")
     except Exception as e:
         stack_trace = traceback.format_exc()
         logger.error(f"Error during directory processing: {str(e)}\n{stack_trace}")
@@ -802,7 +841,7 @@ if __name__ == "__main__":
     else:
         logger.warning("No command line arguments provided")
         print(
-            "Usage: python extract.py <directory_path> [output_file_path(default: WAVE_RO_Extraction.xlsx)]"
+            "Usage: python extract.py <directory_path> [output_file_path]"
         )
 
     logger.info("Script completed")
