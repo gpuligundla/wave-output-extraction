@@ -644,13 +644,16 @@ def has_design_warnings(warning_table):
             for warning in warning_lines:
                 if warning_title in warning:
                     try:
-                        # Extract the value part
-                        value_part = warning.split("Value:")[-1].strip()
-                        element_recovery_value = float(value_part)
-                        if element_recovery_value > 25:
-                            return True
-                    except (ValueError, IndexError):
-                       logger.error(f"Failed to parse the warning-{warning}")
+                        # Extract the value part by finding "Value:" and extracting the number
+                        # Format could be like "Value: 17.2 Pass: 1" or similar
+                        value_parts = warning.split("Value:")[1].split()
+                        if value_parts and value_parts[0]:
+                            # First element should be the numeric value
+                            element_recovery_value = float(value_parts[0])
+                            if element_recovery_value > 25:
+                                return True
+                    except Exception as e:
+                       logger.error(f"Failed to parse the warning-{warning}: {e}")
     return False
 
 def process_directory(directory_path, output_file=None):
