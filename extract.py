@@ -624,6 +624,34 @@ def process_file(filepath):
         logger.error(f"Error processing {filepath}: {str(e)}\n{stack_trace}")
         return None
 
+def has_design_warnings(warning_table):
+    """
+    Check if there are any Element Recovery warnings with value > 25 in the RO 
+    Design Warnings table.
+    Design Warning: Element Recovery > Maximum Limit Limit: 19.0 Value: 25.2  
+    """
+    if isinstance(warning_table, str):
+        return False
+        
+    # If it's a DataFrame
+    if isinstance(warning_table, pd.DataFrame) and not warning_table.empty:
+        # Extract the warnings string from the DataFrame
+        if "RO Design Warnings" in warning_table.columns:
+            warnings_text = warning_table["RO Design Warnings"].iloc[0]
+            warning_lines = warnings_text.split('\n')
+            
+            warning_title = "Design Warning: Element Recovery > Maximum Limit"
+            for warning in warning_lines:
+                if warning_title in warning:
+                    try:
+                        # Extract the value part
+                        value_part = warning.split("Value:")[-1].strip()
+                        element_recovery_value = float(value_part)
+                        if element_recovery_value > 25:
+                            return True
+                    except (ValueError, IndexError):
+                       logger.error(f"Failed to parse the warning-{warning}")
+    return False
 
 def process_directory(directory_path, output_file=None):
     """Process all Excel files in a directory and create output file"""
@@ -654,6 +682,7 @@ def process_directory(directory_path, output_file=None):
     all_tables = {}
     file_count = 0
     failed_files = []
+    skipped_files = [] # skip if design warnings, Maximum Limit Limit > 25  
 
     # Look for metadata file in the directory
     metadata_file = os.path.join(directory_path, "report_metadata.csv")
@@ -689,7 +718,12 @@ def process_directory(directory_path, output_file=None):
                         )
                         failed_files.append(file_path.name)
                         continue
-
+                    elif has_design_warnings(tables['design_warnings']):
+                        logger.warning(
+                            f"Skipping {file_path.name} due to design warning"
+                        )
+                        skipped_files.append(file_path.name)
+                        continue
                     # For the first file, initialize all_tables
                     if file_count == 0:
                         for key in tables:
@@ -763,6 +797,8 @@ def process_directory(directory_path, output_file=None):
                 "Statistic": [
                     "Total Files Processed",
                     "Successfully Processed",
+                    "Skipped Files",
+                    "Skipped Files List",
                     "Failed Files",
                     "Failure Rate (%)",
                     "Failed Files List",
@@ -771,9 +807,11 @@ def process_directory(directory_path, output_file=None):
                 "Value": [
                     len(all_files),
                     file_count,
+                    len(skipped_files),
+                    ", ".join(skipped_files) if skipped_files else "None",
                     len(failed_files),
                     (
-                        round(len(failed_files) / len(all_files) * 100, 2)
+                        round(len(failed_files) / (len(all_files) - len(skipped_files))* 100, 2)
                         if all_files
                         else 0
                     ),
