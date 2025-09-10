@@ -815,7 +815,7 @@ def process_directory(directory_path, output_file=None):
                     len(failed_files),
                     (
                         round(len(failed_files) / (len(all_files) - len(skipped_files))* 100, 2)
-                        if all_files
+                        if len(all_files) - len(skipped_files)
                         else 0
                     ),
                     ", ".join(failed_files) if failed_files else "None",
