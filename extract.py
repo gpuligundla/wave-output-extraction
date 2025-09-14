@@ -7,7 +7,9 @@ from datetime import datetime
 import traceback
 
 logger = logging.getLogger(__name__)
-
+# TODO: its not right way, replace in future by shifting to left in csv before processing
+# column identifiers to locate data in CCRO reports
+DATA_COLUMN_START_INDEX = 0
 
 def setup_logger():
     """Setup logger for the extraction"""
@@ -41,8 +43,11 @@ def convert_xls_to_csv(xls_file):
         # Read the Excel file
         df = pd.read_excel(xls_file, sheet_name="Sheet2")
 
+        # Drop completely empty columns
+        df_cleaned = df.dropna(axis=1, how='all')
+        
         # Save as CSV with UTF-8 encoding
-        df.to_csv(csv_output, index=False, encoding="utf-8")
+        df_cleaned.to_csv(csv_output, index=False, encoding="utf-8")
         logger.info(f"Successfully converted to {csv_output}")
         return csv_output
     except Exception as e:
@@ -50,9 +55,22 @@ def convert_xls_to_csv(xls_file):
         logger.error(f"Error converting {xls_file} to CSV: {str(e)}\n{stack_trace}")
         raise
 
-
-def find_table_start(df, marker, column_idx=3, exact_match=True):
+def is_CCRO_report(df):
+    """Check if file is of type CCRO or not"""
+    try:
+        if df.shape[0] >= 4:
+            cell_value = str(df.iloc[3, 1])
+            return "CCRO Detailed Report" in cell_value
+        return False
+    except Exception as e:
+        logger.error(f"Error checking CCRO report type: {str(e)}")
+        return False
+    
+def find_table_start(df, marker, column_idx=None, exact_match=True):
     """Find the starting row index of a table based on a marker"""
+    if column_idx is None:
+        column_idx = DATA_COLUMN_START_INDEX
+        
     if exact_match:
         indices = df.index[df.iloc[:, column_idx] == marker].tolist()
     else:
@@ -153,6 +171,61 @@ def extract_pass_details(df):
 
     return transpose_table, None
 
+def extract_ccro_overview(df):
+    """Extract the CCRO Overview Table"""
+    start_row = find_table_start(
+        df, r"CCRO Overview", column_idx=0, exact_match=False
+    )
+    if start_row is None:
+        return pd.DataFrame(), "CCRO overview not found."
+
+    # skipping the table name row and get actual data
+    start_row += 2
+    end_row = find_next_empty_row(df, start_row)
+
+    # Extract the table with all columns to capture values
+    table = df.iloc[start_row:end_row].copy()
+    cleaned_table = clean_table(table)
+    # dropping the units col
+    cleaned_table = cleaned_table.drop(cleaned_table.columns[1], axis=1)
+
+    transpose_table = cleaned_table.T
+
+    transpose_table.columns = transpose_table.iloc[0]
+    transpose_table = transpose_table.iloc[1:]
+    return transpose_table, None
+
+def extract_ccro_sustainability(df):
+    """Extract the CCRO Sustainability Table"""
+    start_row = find_table_start(
+        df, r"CCRO Sustainability", column_idx=0, exact_match=False
+    )
+    if start_row is None:
+        return pd.DataFrame(), "CCRO Sustainability not found."
+
+    # skipping the table name row, and get actual data
+    start_row += 5
+    end_row = find_next_empty_row(df, start_row)
+
+    # Extract the table with all columns to capture values
+    table = df.iloc[start_row:end_row].copy()
+    cleaned_table = clean_table(table)
+    keys = ["Tradional RO", "CCRO", "CCRO Savings"]
+    cols = ["recovery", "conc_volume", "conc_value"]
+    data = {}
+
+    for key, row in zip(keys, cleaned_table.itertuples(index=False)):
+        if not key.startswith(row[0].split(" ")[0]):
+            raise Exception(f"Key {key} not found")
+        key = key.strip().replace(" ", "_")
+        for index, col in enumerate(cols, start=1):
+            if index != 1 and index % 2 != 0:
+                continue
+            data[f"{key}_{col}"] = row[index]
+
+    result_df = pd.DataFrame([data])
+
+    return result_df, None
 
 def extract_stage_level_flow_table(df):
     """Extract the RO Flow Table (Stage Level)"""
@@ -580,6 +653,23 @@ def process_file(filepath):
                 ("final_costs", extract_final_costs),
             ]
 
+            # check if CCRO and set the DATA_COLUMN_START_INDEX
+            global DATA_COLUMN_START_INDEX
+            if is_CCRO_report(df):
+                DATA_COLUMN_START_INDEX = 1
+                # adding the extaction functions to be part of report
+                extraction_functions.extend(
+                    [
+                        ("ccro_overview", extract_ccro_overview),
+                        ("ccro_sustainability", extract_ccro_sustainability),
+                    ]
+                )
+            else:
+                # Reset to default for non-CCRO reports
+                DATA_COLUMN_START_INDEX = 0
+                
+            logger.info(f"Set DATA_COLUMN_START_INDEX to {DATA_COLUMN_START_INDEX} for file {filepath}")
+
             # Extract all tables with better error handling
             logger.info(f"Extracting tables from {filepath}")
             for table_name, extract_function in extraction_functions:
@@ -656,12 +746,14 @@ def has_design_warnings(warning_table):
                        logger.error(f"Failed to parse the warning-{warning}: {e}")
     return False
 
-def process_directory(directory_path, output_file=None):
+def process_directory(directory_path, output_path=None):
     """Process all Excel files in a directory and create output file"""
     logger.info(f"Processing directory: {directory_path}")
 
-    if output_file is None:
+    if output_path is None:
         output_file = os.path.join(os.curdir, "WAVE_RO_Extraction.xlsx")
+    else: 
+        output_file = os.path.join(output_path, "WAVE_RO_Extraction.xlsx")
 
     # Find only XLS files
     try:
@@ -874,11 +966,11 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 1:
         directory_path = sys.argv[1]
-        output_file = sys.argv[2] if len(sys.argv) > 2 else None
+        output_path = sys.argv[2] if len(sys.argv) > 2 else None
         logger.info(
-            f"Command line arguments: directory={directory_path}, output_file={output_file}"
+            f"Command line arguments: directory={directory_path}, output_path={output_path}"
         )
-        process_directory(directory_path, output_file)
+        process_directory(directory_path, output_path)
     else:
         logger.warning("No command line arguments provided")
         print(
