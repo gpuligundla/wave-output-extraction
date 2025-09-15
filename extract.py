@@ -389,9 +389,8 @@ def extract_element_level_flow_table(df):
     # Extract the table with all columns to capture values
     table = df.iloc[start_row:end_row].copy()
     cleaned_table = clean_table(table)
-
     # get keys from column names
-    keys = [item.strip().replace(" ", "_") for item in cleaned_table.iloc[0]]
+    keys = [item.strip().replace(" ", "_") for item in cleaned_table.iloc[0] if pd.notna(item)]
 
     data = {}
     # skip the header row and process the rows
