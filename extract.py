@@ -351,7 +351,6 @@ def extract_design_warnings(df):
     table = df.iloc[start_row:end_row].copy()
     cleaned_table = clean_table(table)
     cleaned_table = cleaned_table.drop(cleaned_table.columns[1], axis=1)
-
     warnings = []
     columns = [
         "Design Warning",
@@ -364,9 +363,14 @@ def extract_design_warnings(df):
     ]
 
     for _, row in cleaned_table.iterrows():
-        warnings.append(
-            " ".join([f"{col}: {row.iloc[idx]}" for idx, col in enumerate(columns)])
-        )
+        row_values = []
+        for idx, col in enumerate(columns):
+            if idx < len(row):
+                row_values.append(f"{col}: {row.iloc[idx]}")
+            else:
+                # some reports has empty value for some columns
+                row_values.append(f"{col}: NOT_AVAILABLE")
+        warnings.append(" ".join(row_values))
 
     # merging all warnings into 1 string
     warnings = "\n".join(warnings)
