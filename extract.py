@@ -111,7 +111,7 @@ def extract_summary_table(df):
     table = df.iloc[start_row:end_row].copy()
     table_cleaned = clean_table(table)
     data = {}
-    row_keys = ["Raw_Feed", "Net_Feed", "Total_Conc", "Net_Product"]
+    row_keys = ["Raw_Feed", "Net_Feed", "Total_Conc", "Net_Product", "Net Concentrate", "Net Product"]
     col_keys = ["#number", "Description", "Flow", "TDS", "Pressure"]
 
     for r_key, row in zip(row_keys, table_cleaned.itertuples(index=False)):
@@ -780,9 +780,6 @@ def combine_tables_horizontally(all_tables):
         # Replace NaN and inf values to avoid Excel writing errors
         table_copy = table_copy.fillna('')
         table_copy = table_copy.replace([float('inf'), float('-inf')], ['INF', '-INF'])
-        
-        # Rename columns to include table name prefix to avoid conflicts
-        table_copy.columns = [f'{table_name}_{col}' for col in table_copy.columns]
         
         dataframes_to_concat.append(table_copy)
     
