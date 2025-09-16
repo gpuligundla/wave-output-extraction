@@ -798,10 +798,12 @@ def process_directory(directory_path, output_path=None, single_sheet=False):
     logger.info(f"Processing directory: {directory_path}")
 
     if output_path is None:
-        output_file = os.path.join(os.curdir, "WAVE_RO_Extraction.xlsx")
+        output_file = os.path.join(os.curdir, "WAVE_RO_Extraction_Output.xlsx")
     else: 
-        output_file = os.path.join(output_path, "WAVE_RO_Extraction.xlsx")
+        output_file = os.path.join(output_path, "WAVE_RO_Extraction_Output.xlsx")
 
+    if single_sheet:
+        output_file = os.path.splitext(output_file)[0] + "_Combined.xlsx"
     # Find only XLS files
     try:
         all_files = list(Path(directory_path).glob("*.xls"))
