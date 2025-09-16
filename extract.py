@@ -5,6 +5,7 @@ import logging
 import sys
 from datetime import datetime
 import traceback
+import argparse
 
 logger = logging.getLogger(__name__)
 # TODO: its not right way, replace in future by shifting to left in csv before processing
@@ -749,7 +750,50 @@ def has_design_warnings(warning_table):
                        logger.error(f"Failed to parse the warning-{warning}: {e}")
     return False
 
-def process_directory(directory_path, output_path=None):
+def combine_tables_horizontally(all_tables):
+    """
+    Combine all tables horizontally into a single DataFrame.
+    """
+    if not all_tables:
+        return pd.DataFrame()
+    
+    # Filter out non-table data (like extraction_errors)
+    table_keys = [key for key in all_tables.keys() 
+                  if isinstance(all_tables[key], pd.DataFrame) and not all_tables[key].empty
+                  and key not in ['extraction_errors']]
+    
+    if not table_keys:
+        return pd.DataFrame()
+    
+    # Collect all DataFrames to concatenate
+    dataframes_to_concat = []
+    
+    for table_name in table_keys:
+        table = all_tables[table_name]
+        
+        if table.empty:
+            continue
+            
+        # Create a copy to avoid modifying the original
+        table_copy = table.copy()
+        
+        # Replace NaN and inf values to avoid Excel writing errors
+        table_copy = table_copy.fillna('')
+        table_copy = table_copy.replace([float('inf'), float('-inf')], ['INF', '-INF'])
+        
+        # Rename columns to include table name prefix to avoid conflicts
+        table_copy.columns = [f'{table_name}_{col}' for col in table_copy.columns]
+        
+        dataframes_to_concat.append(table_copy)
+    
+    # Concatenate all DataFrames horizontally
+    if dataframes_to_concat:
+        combined_df = pd.concat(dataframes_to_concat, axis=1)
+        return combined_df
+    else:
+        return pd.DataFrame()
+
+def process_directory(directory_path, output_path=None, single_sheet=False):
     """Process all Excel files in a directory and create output file"""
     logger.info(f"Processing directory: {directory_path}")
 
@@ -800,7 +844,8 @@ def process_directory(directory_path, output_path=None):
         logger.info("No report_metadata.csv file found in the directory")
 
     try:
-        with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
+        with pd.ExcelWriter(output_file, engine="xlsxwriter", 
+                           engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
             for file_path in all_files:
                 logger.info(
                     f"Processing file {file_count+1}/{len(all_files)}: {file_path.name}"
@@ -924,11 +969,16 @@ def process_directory(directory_path, output_path=None):
             logger.info(
                 f"Writing {len(all_tables)} tables to output file: {output_file}"
             )
-            for key, table in all_tables.items():
-                if not table.empty:
-                    sheet_name = key[:31]  # Excel sheet names limited to 31 chars
-                    table.to_excel(writer, sheet_name=sheet_name, index=False)
-                    logger.info(f"Wrote table '{key}' to sheet '{sheet_name}'")
+            
+            if single_sheet:
+                # Combine all tables into a single sheet
+                logger.info("Combining all tables into a single sheet")
+                combined_table = combine_tables_horizontally(all_tables)
+                
+                if not combined_table.empty:
+                    sheet_name = "Combined_Data"
+                    combined_table.to_excel(writer, sheet_name=sheet_name, index=False)
+                    logger.info(f"Wrote combined table to sheet '{sheet_name}'")
 
                     # Get the xlsxwriter workbook and worksheet objects
                     workbook = writer.book
@@ -938,14 +988,40 @@ def process_directory(directory_path, output_path=None):
                     wrap_format = workbook.add_format({"text_wrap": True})
 
                     # Apply the format to all columns
-                    for col_num, column in enumerate(table.columns):
+                    for col_num, column in enumerate(combined_table.columns):
                         # Set the column width based on content
                         max_len = max(
-                            table[column].astype(str).apply(len).max(), len(str(column))
+                            combined_table[column].astype(str).apply(len).max(), len(str(column))
                         )
                         # Limiting the column width to be between 10 and 50
                         col_width = min(max(max_len + 2, 10), 50)
                         worksheet.set_column(col_num, col_num, col_width, wrap_format)
+                else:
+                    logger.warning("No data to write to combined sheet")
+            else:
+                # Write each table to separate sheets (original behavior)
+                for key, table in all_tables.items():
+                    if not table.empty:
+                        sheet_name = key[:31]  # Excel sheet names limited to 31 chars
+                        table.to_excel(writer, sheet_name=sheet_name, index=False)
+                        logger.info(f"Wrote table '{key}' to sheet '{sheet_name}'")
+
+                        # Get the xlsxwriter workbook and worksheet objects
+                        workbook = writer.book
+                        worksheet = writer.sheets[sheet_name]
+
+                        # Add a cell format with text wrapping
+                        wrap_format = workbook.add_format({"text_wrap": True})
+
+                        # Apply the format to all columns
+                        for col_num, column in enumerate(table.columns):
+                            # Set the column width based on content
+                            max_len = max(
+                                table[column].astype(str).apply(len).max(), len(str(column))
+                            )
+                            # Limiting the column width to be between 10 and 50
+                            col_width = min(max(max_len + 2, 10), 50)
+                            worksheet.set_column(col_num, col_num, col_width, wrap_format)
 
         logger.info(
             f"Successfully processed {file_count} files, {len(failed_files)} failures. Output saved to {output_file}"
@@ -967,17 +1043,17 @@ if __name__ == "__main__":
     setup_logger()
     logger.info("Script started")
 
-    if len(sys.argv) > 1:
-        directory_path = sys.argv[1]
-        output_path = sys.argv[2] if len(sys.argv) > 2 else None
-        logger.info(
-            f"Command line arguments: directory={directory_path}, output_path={output_path}"
-        )
-        process_directory(directory_path, output_path)
-    else:
-        logger.warning("No command line arguments provided")
-        print(
-            "Usage: python extract.py <directory_path> [output_file_path]"
-        )
+    parser = argparse.ArgumentParser(description='Extract data from WAVE RO reports')
+    parser.add_argument('directory_path', help='Directory containing the .xls files to process')
+    parser.add_argument('output_path', nargs='?', help='Output directory path (optional)')
+    parser.add_argument('--singlesheet', action='store_true', 
+                       help='Combine all tables into a single sheet instead of separate sheets')
+    
+    args = parser.parse_args()
+    
+    logger.info(
+        f"Command line arguments: directory={args.directory_path}, output_path={args.output_path}, singlesheet={args.singlesheet}"
+    )
+    process_directory(args.directory_path, args.output_path, args.singlesheet)
 
     logger.info("Script completed")
